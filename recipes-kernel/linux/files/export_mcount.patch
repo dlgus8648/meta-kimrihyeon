@@ -1,0 +1,15 @@
+diff --git a/kernel/trace/ftrace.c b/kernel/trace/ftrace.c
+index 175eba24f562..ea89c3b5d255 100644
+--- a/kernel/trace/ftrace.c
++++ b/kernel/trace/ftrace.c
+@@ -6916,7 +6916,10 @@ void ftrace_module_init(struct module *mod)
+ 	if (ret)
+ 		pr_warn("ftrace: failed to allocate entries for module '%s' functions\n",
+ 			mod->name);
++			
++		
+ }
++EXPORT_SYMBOL(_mcount);
+ 
+ static void save_ftrace_mod_rec(struct ftrace_mod_map *mod_map,
+ 				struct dyn_ftrace *rec)
