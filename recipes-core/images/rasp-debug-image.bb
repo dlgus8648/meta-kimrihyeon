@@ -34,6 +34,7 @@ IMAGE_INSTALL:append = " \
     perl \
     findutils \
     perl-modules \
+    bc \
     perl-dev \
     xz \
 "
@@ -41,9 +42,6 @@ IMAGE_INSTALL:append = " \
 ROOTFS_POSTPROCESS_COMMAND += "prepare_full_kernel_env;"
 
 prepare_full_kernel_env() {
-    echo "[INFO] === Preparing full kernel build environment inside rootfs ==="
-
-    install -d ${IMAGE_ROOTFS}/lib/modules/$(basename $(ls ${IMAGE_ROOTFS}/lib/modules))/
     
     KVER=$(basename $(ls ${IMAGE_ROOTFS}/lib/modules))
     MODULES_TGZ=$(ls ${DEPLOY_DIR_IMAGE}/modules-*raspberrypi4-64*.tgz | head -n 1)
@@ -53,48 +51,69 @@ prepare_full_kernel_env() {
         exit 1
     fi
 
-
     echo "[STEP 1] === Extracting kernel modules (.ko) into rootfs ==="
     install -d ${IMAGE_ROOTFS}/lib/modules/${KVER}
     tar -xzf ${MODULES_TGZ} -C ${IMAGE_ROOTFS}/lib/modules/${KVER}
 
-    echo "[STEP 2] === Installing kernel headers for build ==="
-    install -d ${IMAGE_ROOTFS}/lib/modules/${KVER}/build
-    rsync -a --exclude 'scripts/basic/fixdep' \
-              --exclude 'scripts/mod/modpost' \
-              ${TMPDIR}/work-shared/${MACHINE}/kernel-build-artifacts/ \
-              ${IMAGE_ROOTFS}/lib/modules/${KVER}/build/
+    echo "[STEP 2] === Copying FULL kernel build tree ==="
 
 
+    # 실제 Yocto 커널 빌드 디렉토리
+    REAL_SRC=${TMPDIR}/work/raspberrypi4_64-poky-linux/linux-raspberrypi/6.6.63+git/linux-raspberrypi4_64-standard-build
+    TARGET_BUILD=${IMAGE_ROOTFS}/lib/modules/${KVER}/build
+    BUILD_ARTIFACTS=${TMPDIR}/work-shared/${MACHINE}/kernel-build-artifacts
 
-
-
-    KERNEL_VER=$(basename $(ls ${IMAGE_ROOTFS}/lib/modules))
-    KERNEL_BUILD_PATH=${IMAGE_ROOTFS}/lib/modules/${KERNEL_VER}/build
-    KERNEL_SRC_PATH=${IMAGE_ROOTFS}/usr/src/kernel-devsrc
-    KERNEL_STAGING=${STAGING_KERNEL_BUILDDIR}
-
-    # 1. 전체 커널 빌드 트리를 /lib/modules/.../build 에 복사
-    echo "[STEP 1] Copying full kernel build tree to /lib/modules/${KERNEL_VER}/build ..."
-    install -d ${KERNEL_BUILD_PATH}
-    cp -r ${KERNEL_STAGING}/* ${KERNEL_BUILD_PATH}/ || true
-
-    # 2. devsrc에도 동일 빌드 산출물 복사
-    if [ -d "${KERNEL_SRC_PATH}" ]; then
-        echo "[STEP 2] Copying kernel build artifacts into /usr/src/kernel-devsrc ..."
-        cp -f ${KERNEL_STAGING}/.config ${KERNEL_SRC_PATH}/ || true
-        cp -f ${KERNEL_STAGING}/Module.symvers ${KERNEL_SRC_PATH}/ || true
-        cp -rf ${KERNEL_STAGING}/include/generated ${KERNEL_SRC_PATH}/include/ || true
-        cp -rf ${KERNEL_STAGING}/include/config ${KERNEL_SRC_PATH}/include/ || true
-        ln -sf /usr/src/kernel-devsrc ${IMAGE_ROOTFS}/lib/modules/${KERNEL_VER}/source
-    else
-        echo "[WARN] kernel-devsrc not found under /usr/src"
+    if [ ! -d "${REAL_SRC}" ]; then
+        echo "[ERROR] Missing kernel build source: ${REAL_SRC}"
+        exit 1
     fi
 
-    echo "[STEP 3] Kernel build environment ready."
+    # install -d ${TARGET_BUILD}
+
+    echo "[COPY] Copying full kernel source from:"
+    echo "       ${REAL_SRC} → ${TARGET_BUILD}"
+
+    cp -a ${REAL_SRC}/* ${TARGET_BUILD}/
+   
+    KIM_TOOLCHAIN=${TMPDIR}/kim_aarch64-toolchain
+    mkdir -p $KIM_TOOLCHAIN
+    # gcc 관련
+    cp -a ${TMPDIR}/sysroots-components/x86_64/gcc-cross-aarch64/usr/bin/aarch64-poky-linux/* $KIM_TOOLCHAIN/
+    # binutils 관련
+    cp -a ${TMPDIR}/sysroots-components/x86_64/binutils-cross-aarch64/usr/bin/aarch64-poky-linux/* $KIM_TOOLCHAIN/
+
+    echo "[DEBUG] TOOLCHAIN = ${KIM_TOOLCHAIN}"
+    ls ${KIM_TOOLCHAIN}/aarch64-poky-linux-gcc || echo "gcc not found!"
+    echo "[DEBUG] CC before unset: $CC"
+    echo "[DEBUG] HOSTCC before unset: $HOSTCC"
+    #unset CC
+    #unset CXX
+    #export HOSTCC=/usr/bin/gcc
+    #export HOSTCXX=/usr/bin/g++
+    #export HOSTLD=/usr/bin/ld
+    #export HOSTCFLAGS="-O2 -Wall"
+    #echo "[DEBUG] CC after unset: $CC"
+    #echo "[DEBUG] HOSTCC after unset: $HOSTCC"
+    #echo "HOSTCC = $HOSTCC"
+    #echo "HOSTCXX = $HOSTCXX"
+    #echo "HOSTLD = $HOSTLD"
+    #echo "HOSTCFLAGS = $HOSTCFLAGS"
+    SDK_PATH=/opt/poky/5.0.12
+    CROSS_COMPILE=${SDK_PATH}/sysroots/x86_64-pokysdk-linux/usr/bin/aarch64-poky-linux/aarch64-poky-linux-
+    sed -i 's@scripts/atomic/check-atomics.sh@true@g' ${TARGET_BUILD}/Makefile
+    make -C ${TARGET_BUILD} ARCH=arm64 CROSS_COMPILE=${CROSS_COMPILE} V=1
+
+
+
+
+    echo "[SYNC] Syncing kernel build artifacts (Module.symvers, .config, include/generated)"
+    # rsync -a ${BUILD_ARTIFACTS}/ ${TARGET_BUILD}/
+
+    echo "[DONE] === Full kernel source + build tree installed at /lib/modules/${KVER}/build ==="
+
 }
 
-DEPENDS += "rsync-native"
+DEPENDS += "rsync-native bison-native flex-native bc-native coreutils-native"
 
 IMAGE_ROOTFS_EXTRA_SPACE = "16192000" 
 # 개발 편의 기능 추가
