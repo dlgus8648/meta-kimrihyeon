@@ -16,6 +16,8 @@ IMAGE_INSTALL:append = " \
     htop \
     make \
     gcc \
+    bash \
+    pahole \
     binutils \
     net-tools \
     iproute2 \
@@ -34,7 +36,6 @@ IMAGE_INSTALL:append = " \
     perl \
     findutils \
     perl-modules \
-    bc \
     perl-dev \
     xz \
 "
@@ -42,6 +43,9 @@ IMAGE_INSTALL:append = " \
 ROOTFS_POSTPROCESS_COMMAND += "prepare_full_kernel_env;"
 
 prepare_full_kernel_env() {
+    echo "[INFO] === Preparing full kernel build environment inside rootfs ==="
+
+    install -d ${IMAGE_ROOTFS}/lib/modules/$(basename $(ls ${IMAGE_ROOTFS}/lib/modules))/
     
     KVER=$(basename $(ls ${IMAGE_ROOTFS}/lib/modules))
     MODULES_TGZ=$(ls ${DEPLOY_DIR_IMAGE}/modules-*raspberrypi4-64*.tgz | head -n 1)
@@ -51,69 +55,32 @@ prepare_full_kernel_env() {
         exit 1
     fi
 
+
     echo "[STEP 1] === Extracting kernel modules (.ko) into rootfs ==="
     install -d ${IMAGE_ROOTFS}/lib/modules/${KVER}
     tar -xzf ${MODULES_TGZ} -C ${IMAGE_ROOTFS}/lib/modules/${KVER}
 
-    echo "[STEP 2] === Copying FULL kernel build tree ==="
+    echo "[STEP 2] === Installing kernel headers for build ==="
+    rm -rf ${IMAGE_ROOTFS}/lib/modules/${KVER}/build
+    ln -sf /usr/src/kernel-devsrc ${IMAGE_ROOTFS}/lib/modules/${KVER}/build
+    ln -sf /usr/src/kernel-devsrc ${IMAGE_ROOTFS}/lib/modules/${KVER}/source
 
 
-    # 실제 Yocto 커널 빌드 디렉토리
-    REAL_SRC=${TMPDIR}/work/raspberrypi4_64-poky-linux/linux-raspberrypi/6.6.63+git/linux-raspberrypi4_64-standard-build
-    TARGET_BUILD=${IMAGE_ROOTFS}/lib/modules/${KVER}/build
-    BUILD_ARTIFACTS=${TMPDIR}/work-shared/${MACHINE}/kernel-build-artifacts
-
-    if [ ! -d "${REAL_SRC}" ]; then
-        echo "[ERROR] Missing kernel build source: ${REAL_SRC}"
-        exit 1
+    echo "[STEP 4] === Rebuilding kernel helper tools for ARM64 ==="
+    if [ -x "${IMAGE_ROOTFS}/bin/bash" ]; then
+        chroot ${IMAGE_ROOTFS} /bin/bash -c "
+            cd /usr/src/kernel-devsrc && \
+            make ARCH=arm64 prepare scripts
+        "
+    else
+        echo "[WARN] bash not found inside rootfs — skipping prepare scripts"
     fi
 
-    # install -d ${TARGET_BUILD}
 
-    echo "[COPY] Copying full kernel source from:"
-    echo "       ${REAL_SRC} → ${TARGET_BUILD}"
-
-    cp -a ${REAL_SRC}/* ${TARGET_BUILD}/
-   
-    KIM_TOOLCHAIN=${TMPDIR}/kim_aarch64-toolchain
-    mkdir -p $KIM_TOOLCHAIN
-    # gcc 관련
-    cp -a ${TMPDIR}/sysroots-components/x86_64/gcc-cross-aarch64/usr/bin/aarch64-poky-linux/* $KIM_TOOLCHAIN/
-    # binutils 관련
-    cp -a ${TMPDIR}/sysroots-components/x86_64/binutils-cross-aarch64/usr/bin/aarch64-poky-linux/* $KIM_TOOLCHAIN/
-
-    echo "[DEBUG] TOOLCHAIN = ${KIM_TOOLCHAIN}"
-    ls ${KIM_TOOLCHAIN}/aarch64-poky-linux-gcc || echo "gcc not found!"
-    echo "[DEBUG] CC before unset: $CC"
-    echo "[DEBUG] HOSTCC before unset: $HOSTCC"
-    #unset CC
-    #unset CXX
-    #export HOSTCC=/usr/bin/gcc
-    #export HOSTCXX=/usr/bin/g++
-    #export HOSTLD=/usr/bin/ld
-    #export HOSTCFLAGS="-O2 -Wall"
-    #echo "[DEBUG] CC after unset: $CC"
-    #echo "[DEBUG] HOSTCC after unset: $HOSTCC"
-    #echo "HOSTCC = $HOSTCC"
-    #echo "HOSTCXX = $HOSTCXX"
-    #echo "HOSTLD = $HOSTLD"
-    #echo "HOSTCFLAGS = $HOSTCFLAGS"
-    SDK_PATH=/opt/poky/5.0.12
-    CROSS_COMPILE=${SDK_PATH}/sysroots/x86_64-pokysdk-linux/usr/bin/aarch64-poky-linux/aarch64-poky-linux-
-    sed -i 's@scripts/atomic/check-atomics.sh@true@g' ${TARGET_BUILD}/Makefile
-    make -C ${TARGET_BUILD} ARCH=arm64 CROSS_COMPILE=${CROSS_COMPILE} V=1
-
-
-
-
-    echo "[SYNC] Syncing kernel build artifacts (Module.symvers, .config, include/generated)"
-    # rsync -a ${BUILD_ARTIFACTS}/ ${TARGET_BUILD}/
-
-    echo "[DONE] === Full kernel source + build tree installed at /lib/modules/${KVER}/build ==="
-
+    
 }
 
-DEPENDS += "rsync-native bison-native flex-native bc-native coreutils-native"
+DEPENDS += "rsync-native"
 
 IMAGE_ROOTFS_EXTRA_SPACE = "16192000" 
 # 개발 편의 기능 추가
@@ -122,4 +89,3 @@ EXTRA_IMAGE_FEATURES += " tools-sdk dev-pkgs debug-tweaks "
 BOOT_SPACE = "165536"
 INHIBIT_PACKAGE_STRIP = "1"
 INHIBIT_PACKAGE_DEBUG_SPLIT = "1"
-

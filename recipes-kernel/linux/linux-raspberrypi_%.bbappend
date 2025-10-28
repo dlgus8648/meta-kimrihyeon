@@ -18,13 +18,23 @@ do_install:prepend() {
 KBUILD_CFLAGS += "-fdebug-prefix-map=${S}=/usr/src/kernel"
 do_install:append() {
     echo "[INFO] Copying full kernel source into /usr/src/kernel-devsrc (preserving symlinks)..."
+      # 1️⃣ devsrc 루트 디렉토리 생성
     install -d ${D}/usr/src/kernel-devsrc
-    rsync -a --links --exclude=".git" \
-          --owner --group --chown=0:0 \
-          ${S}/ ${D}/usr/src/kernel-devsrc/
+    install -d ${D}/usr/src/kernel-devsrc/arch/arm64/include
+    install -d ${D}/usr/src/kernel-devsrc/include
+
+    # 2️⃣ 필수 파일 복사
     install -m 0644 ${B}/.config ${D}/usr/src/kernel-devsrc/.config || true
     install -m 0644 ${B}/System.map ${D}/usr/src/kernel-devsrc/System.map || true
     install -m 0644 ${B}/Module.symvers ${D}/usr/src/kernel-devsrc/Module.symvers || true
+    install -m 0755 ${B}/vmlinux ${D}/usr/src/kernel-devsrc/vmlinux || true
+
+    BUILD_ARTIFACTS=${TMPDIR}/work-shared/${MACHINE}/kernel-source
+   # 3️⃣ 헤더 디렉토리 복사
+    rsync -a --links --exclude=".git" \
+          --owner --group --chown=0:0 \
+          ${BUILD_ARTIFACTS}/ ${D}/usr/src/kernel-devsrc/
+
 
 }
 
