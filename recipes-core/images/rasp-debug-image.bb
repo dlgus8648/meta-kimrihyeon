@@ -4,10 +4,13 @@ LICENSE = "CLOSED"
 require recipes-extended/images/core-image-kernel-dev.bb
 
 
+#raspi4b의경우
+#IMAGE_FSTYPES += " rpi-sdimg "
 
-IMAGE_FSTYPES += " rpi-sdimg "
 
 
+#
+# linux-raspberrypi-devsrc <-> linux-yocto-devsrc
 # 개발용 도구 추가
 IMAGE_INSTALL:remove = "dropbear"
 IMAGE_INSTALL:append = " \
@@ -22,7 +25,7 @@ IMAGE_INSTALL:append = " \
     net-tools \
     iproute2 \
     openssh \
-    linux-raspberrypi-devsrc \
+    linux-yocto-devsrc \
     gawk \
     coreutils \
     gdb \
@@ -37,10 +40,11 @@ IMAGE_INSTALL:append = " \
     findutils \
     perl-modules \
     perl-dev \
+    crash \
     xz \
 "
 # 커널 빌드 트리와 devsrc 모두 준비
-ROOTFS_POSTPROCESS_COMMAND += "prepare_full_kernel_env;"
+#ROOTFS_POSTPROCESS_COMMAND += "prepare_full_kernel_env;"
 
 prepare_full_kernel_env() {
     echo "[INFO] === Preparing full kernel build environment inside rootfs ==="
@@ -48,7 +52,7 @@ prepare_full_kernel_env() {
     install -d ${IMAGE_ROOTFS}/lib/modules/$(basename $(ls ${IMAGE_ROOTFS}/lib/modules))/
     
     KVER=$(basename $(ls ${IMAGE_ROOTFS}/lib/modules))
-    MODULES_TGZ=$(ls ${DEPLOY_DIR_IMAGE}/modules-*raspberrypi4-64*.tgz | head -n 1)
+    #MODULES_TGZ=$(ls ${DEPLOY_DIR_IMAGE}/modules-*raspberrypi4-64*.tgz | head -n 1)
 
     if [ -z "${MODULES_TGZ}" ]; then
         echo "[ERROR] Cannot find kernel modules package (*.tgz) under ${DEPLOY_DIR_IMAGE}"
