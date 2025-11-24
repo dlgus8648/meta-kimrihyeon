@@ -42,6 +42,7 @@ IMAGE_INSTALL:append = " \
     perl-dev \
     crash \
     xz \
+    hello-mod\
 "
 # 커널 빌드 트리와 devsrc 모두 준비
 #ROOTFS_POSTPROCESS_COMMAND += "prepare_full_kernel_env;"
